@@ -1,0 +1,10 @@
+{
+  "name": "supercoach-ai",
+  "version": "1.0.0",
+  "dependencies": {
+    "stripe": "^14.21.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
