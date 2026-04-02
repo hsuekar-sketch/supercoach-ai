@@ -1,30 +1,63 @@
-// netlify/functions/create-checkout.js
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+// netlify/functions/anthropic-proxy.js
+// Leitet Anthropic API Aufrufe sicher weiter – API Key bleibt auf dem Server
+
+const https = require("https");
 
 exports.handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+      },
+      body: "",
+    };
+  }
+
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const origin = event.headers.origin || process.env.URL || "https://supercoach.ai";
+  const body = event.body;
 
-  try {
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      payment_method_types: ["card"],
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-      success_url: `${origin}/?premium=true&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/`,
-      allow_promotion_codes: true,
-      locale: "de",
+  return new Promise((resolve) => {
+    const options = {
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        resolve({
+          statusCode: res.statusCode,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+          body: data,
+        });
+      });
     });
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ url: session.url }),
-    };
-  } catch (error) {
-    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
-  }
+    req.on("error", (e) => {
+      resolve({
+        statusCode: 500,
+        body: JSON.stringify({ error: e.message }),
+      });
+    });
+
+    req.write(body);
+    req.end();
+  });
 };
